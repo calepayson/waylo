@@ -2,6 +2,9 @@
 .venv/
 venv/
 
+# python dirs
+__pycache__/
+
 # data dirs
 data/
 voc_data

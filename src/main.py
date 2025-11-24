@@ -3,13 +3,18 @@ import subprocess
 import sys
 from pathlib import Path
 
+from config import Config
 
-logging.basicConfig(level=logging.INFO)
+
+logging.basicConfig(level=Config.log_level)
 logger = logging.getLogger(__name__)
 
 
 def main():
     """Runs waylo"""
+
+    logger.debug("Starting main...")
+
     project_root = Path(__file__).parent.parent
     voc_data_path = project_root / "voc_data"
 
