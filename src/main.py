@@ -3,10 +3,10 @@ import subprocess
 import sys
 from pathlib import Path
 
-from config import Config
+from config import CurrentConfig as Conf
 
 
-logging.basicConfig(level=Config.log_level)
+logging.basicConfig(level=Conf.log_level)
 logger = logging.getLogger(__name__)
 
 

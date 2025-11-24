@@ -3,5 +3,10 @@ import logging
 
 
 @dataclass
-class Config:
+class BaseConfig:
     log_level: int = logging.INFO
+
+
+@dataclass
+class CurrentConfig(BaseConfig):
+    log_level: int = logging.DEBUG
