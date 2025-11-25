@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from utils import iou
+from utils import iou, nms
 
 
 class TestIoU:
@@ -145,3 +145,118 @@ class TestIoU:
         #     iou(box, box, box_format="invalid")
         with pytest.raises((ValueError, UnboundLocalError, NameError)):
             iou(box, box, box_format="invalid")
+
+
+class TestNMS:
+    """Tests for non-max suppression."""
+
+    # --- Basic functionality ---
+
+    def test_empty_input(self):
+        """Empty list returns empty list."""
+        result = nms([], iou_thresh=0.5, thresh=0.5)
+        assert result == []
+
+    def test_all_below_threshold(self):
+        """All boxes below confidence threshold are filtered."""
+        bboxes = [
+            [0, 0.3, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.4, 2.0, 2.0, 3.0, 3.0],
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5)
+        assert result == []
+
+    def test_single_box_above_threshold(self):
+        """Single box above threshold is kept."""
+        bboxes = [[0, 0.9, 0.0, 0.0, 1.0, 1.0]]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5)
+        assert len(result) == 1
+        assert result[0][1] == 0.9
+
+    def test_non_overlapping_same_class(self):
+        """Non-overlapping boxes of same class are all kept."""
+        bboxes = [
+            [0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.8, 5.0, 5.0, 6.0, 6.0],
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="corners")
+        assert len(result) == 2
+
+    def test_overlapping_same_class_suppresses(self):
+        """Overlapping boxes of same class: lower confidence suppressed."""
+        bboxes = [
+            [0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.8, 0.1, 0.1, 1.1, 1.1],  # high overlap with first
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="corners")
+        assert len(result) == 1
+        assert result[0][1] == 0.9
+
+    def test_overlapping_different_classes_kept(self):
+        """Overlapping boxes of different classes are both kept."""
+        bboxes = [
+            [0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [1, 0.8, 0.0, 0.0, 1.0, 1.0],  # identical box, different class
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="corners")
+        assert len(result) == 2
+
+    # --- Threshold edge cases ---
+
+    def test_box_exactly_at_thresh_filtered(self):
+        """Box with prob == thresh is filtered (uses >)."""
+        bboxes = [[0, 0.5, 0.0, 0.0, 1.0, 1.0]]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5)
+        assert result == []
+
+    def test_iou_exactly_at_thresh_kept(self):
+        """Box with IoU == iou_thresh is kept (uses <)."""
+        # Two boxes with exactly 0.5 IoU should keep both
+        # 1x1 boxes offset by 0.5 → intersection=0.25, union=1.75, IoU≈0.143
+        # Need to construct boxes with IoU exactly at threshold
+        # Easier: set iou_thresh very high so nothing gets suppressed
+        bboxes = [
+            [0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.8, 0.1, 0.1, 1.1, 1.1],
+        ]
+        result = nms(bboxes, iou_thresh=0.99, thresh=0.5, box_format="corners")
+        assert len(result) == 2
+
+    # --- Box format ---
+
+    def test_midpoint_format(self):
+        """NMS works with midpoint format."""
+        # Two identical boxes at same location (midpoint format: cx, cy, w, h)
+        bboxes = [
+            [0, 0.9, 0.5, 0.5, 1.0, 1.0],
+            [0, 0.8, 0.5, 0.5, 1.0, 1.0],
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="midpoint")
+        assert len(result) == 1
+        assert result[0][1] == 0.9
+
+    # --- Multi-box scenarios ---
+
+    def test_chain_suppression(self):
+        """Highest confidence box suppresses multiple overlapping boxes."""
+        bboxes = [
+            [0, 0.7, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.9, 0.05, 0.05, 1.05, 1.05],
+            [0, 0.8, 0.1, 0.1, 1.1, 1.1],
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="corners")
+        assert len(result) == 1
+        assert result[0][1] == 0.9
+
+    def test_multiple_classes_independent(self):
+        """Each class processed independently."""
+        bboxes = [
+            [0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 0.8, 0.0, 0.0, 1.0, 1.0],  # suppressed by first
+            [1, 0.85, 0.0, 0.0, 1.0, 1.0],
+            [1, 0.7, 0.0, 0.0, 1.0, 1.0],  # suppressed by third
+        ]
+        result = nms(bboxes, iou_thresh=0.5, thresh=0.5, box_format="corners")
+        assert len(result) == 2
+        classes = [box[0] for box in result]
+        assert 0 in classes and 1 in classes
