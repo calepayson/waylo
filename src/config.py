@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import ClassVar
 import logging
 
 
@@ -10,7 +11,37 @@ class BaseConfig:
 
 @dataclass
 class YOLOConfig(BaseConfig):
-    IMG_SIZE: int = 448
+    img_size: int = 448
+
+    split_size: int = 7
+    n_boxes: int = 2
+    n_classes: int = 20
+    final_conv_channels: int = 1024
+
+    fc_hidden_size: int = 496  # 4096 in yolo paper but this speeds up training
+    dropout: float = 0.0
+    leaky_relu: float = 0.1
+
+    ARCHITECTURE: ClassVar[list] = [
+        (7, 64, 2, 3),
+        "M",
+        (3, 192, 1, 1),
+        "M",
+        (1, 128, 1, 0),
+        (3, 256, 1, 1),
+        (1, 256, 1, 0),
+        (3, 512, 1, 1),
+        "M",
+        [(1, 256, 1, 0), (3, 512, 1, 1), 4],
+        (1, 512, 1, 0),
+        (3, 1024, 1, 1),
+        "M",
+        [(1, 512, 1, 0), (3, 1024, 1, 1), 2],
+        (3, 1024, 1, 1),
+        (3, 1024, 2, 1),
+        (3, 1024, 1, 1),
+        (3, 1024, 1, 1),
+    ]
 
     data_root: Path = Path(__file__).parent.parent / "voc_data"
 
