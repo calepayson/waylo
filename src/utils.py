@@ -1,5 +1,7 @@
 import torch
 
+from collections import Counter
+
 
 def iou(box_preds, box_labels, box_format="midpoint"):
     """
@@ -86,3 +88,85 @@ def nms(bboxes, iou_thresh, thresh, box_format="corners"):
         bboxes_after_nms.append(current_box)
 
     return bboxes_after_nms
+
+
+def map(box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=20):
+    """
+    Calculates mean average precision for a set of labeled and predicted
+    bounding boxes.
+
+    Args:
+        box_preds (list): A list of bounding boxes where each bounding box is in
+            the format [train_idx, class_pred, prob_score, x1, y1, x2, y2].
+        box_targs (list): Same as box_preds but with target boxes
+        iou_thresh (float): A threshold above which a predicted bounding box is
+            correct.
+        box_format (str): midpoint|corners, (x,y,w,h) or (x1,y1,x2,y2).
+        n_classes (int): The number of different classes to predict.
+
+    Returns:
+        float: The mean average precision across all classes.
+    """
+    avg_precisions = []
+    epsilon = 1e-6
+
+    for c in range(n_classes):
+        detections = []
+        ground_truths = []
+
+        for detection in box_preds:
+            if detection[1] == c:
+                detections.append(detection)
+
+        for gt in box_targs:
+            if gt[1] == c:
+                ground_truths.append(gt)
+
+        n_bboxes = Counter([gt[0] for gt in ground_truths])
+
+        for key, val in n_bboxes.items():
+            n_bboxes[key] = torch.zeros(val)
+
+        detections.sort(key=lambda x: x[2], reverse=True)
+        true_pos = torch.zeros((len(detections)))
+        false_pos = torch.zeros((len(detections)))
+        n_true_bboxes = len(ground_truths)
+
+        if n_true_bboxes == 0:
+            continue
+
+        for i, detection in enumerate(detections):
+            gt_img = [bbox for bbox in ground_truths if bbox[0] == detection[0]]
+
+            best_iou = 0
+            for j, gt in enumerate(gt_img):
+                iou_score = iou(
+                    torch.tensor(detection[3:]),
+                    torch.tensor(gt[3:]),
+                    box_format=box_format,
+                )
+
+                if iou_score > best_iou:
+                    best_iou = iou_score
+                    best_gt_idx = j
+
+            if best_iou > iou_thresh:
+                if n_bboxes[detection[0]][best_gt_idx] == 0:
+                    true_pos[i] = 1
+                    n_bboxes[detection[0]][best_gt_idx] = 1
+                else:
+                    false_pos[i] = 1
+            else:
+                false_pos[i] = 1
+
+        true_pos_cumsum = torch.cumsum(true_pos, dim=0)
+        false_pos_cumsum = torch.cumsum(false_pos, dim=0)
+        recalls = true_pos_cumsum / (n_true_bboxes + epsilon)
+        precisions = torch.divide(
+            true_pos_cumsum, (true_pos_cumsum + false_pos_cumsum + epsilon)
+        )
+        precisions = torch.cat((torch.tensor([1]), precisions))
+        recalls = torch.cat((torch.tensor([0]), recalls))
+        avg_precisions.append(torch.trapz(precisions, recalls))
+
+    return sum(avg_precisions) / len(avg_precisions)

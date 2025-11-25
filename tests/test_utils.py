@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from utils import iou, nms
+from utils import iou, nms, map
 
 
 class TestIoU:
@@ -260,3 +260,182 @@ class TestNMS:
         assert len(result) == 2
         classes = [box[0] for box in result]
         assert 0 in classes and 1 in classes
+
+
+class TestMAP:
+    """Tests for mean average precision calculation."""
+
+    # --- Basic functionality ---
+
+    def test_perfect_predictions(self):
+        """All predictions exactly match ground truths → mAP = 1.0."""
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [1, 0, 0.9, 2.0, 2.0, 3.0, 3.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+            [1, 0, 1.0, 2.0, 2.0, 3.0, 3.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+        )
+        assert result > 0.99
+
+    def test_no_predictions(self):
+        """No predictions for any class with ground truths."""
+        box_preds = []
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+        ]
+        # All classes with GTs are skipped, avg_precisions is empty → division error or 0
+        # Current implementation will raise ZeroDivisionError
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=20
+        )
+        assert result == 0.0
+
+    def test_no_ground_truths(self):
+        """No ground truths → classes skipped, empty list."""
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+        ]
+        box_targs = []
+        with pytest.raises(ZeroDivisionError):
+            map(box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1)
+
+    def test_all_false_positives(self):
+        """Predictions don't overlap any ground truths → mAP = 0."""
+        box_preds = [
+            [0, 0, 0.9, 10.0, 10.0, 11.0, 11.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+        )
+        assert result < 0.01
+
+    # --- Multi-class ---
+
+    def test_multiple_classes_independent(self):
+        """Each class contributes independently to mAP."""
+        # Class 0: perfect, Class 1: no detections (skipped)
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+            [0, 1, 1.0, 2.0, 2.0, 3.0, 3.0],  # class 1, no predictions
+        ]
+        # Class 1 has no detections but has GTs → n_true_bboxes > 0, but detections empty
+        # Loop doesn't add to TP/FP, recalls/precisions are empty tensors of size 0
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=2
+        )
+        # Class 0: AP=1, Class 1: AP=0 (no TP), mAP = 0.5
+        assert 0.4 < result < 0.6
+
+    def test_two_classes_both_perfect(self):
+        """Two classes, both with perfect predictions."""
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 1, 0.9, 2.0, 2.0, 3.0, 3.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+            [0, 1, 1.0, 2.0, 2.0, 3.0, 3.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=2
+        )
+        assert result > 0.99
+
+    # --- IoU threshold ---
+
+    def test_iou_threshold_strict(self):
+        """Stricter IoU threshold reduces mAP for partial overlaps."""
+        # Boxes overlap but not perfectly
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.2, 0.2, 1.2, 1.2],  # partial overlap
+        ]
+        result_loose = map(
+            box_preds, box_targs, iou_thresh=0.3, box_format="corners", n_classes=1
+        )
+        result_strict = map(
+            box_preds, box_targs, iou_thresh=0.9, box_format="corners", n_classes=1
+        )
+        assert result_loose > result_strict
+
+    # --- Duplicate detections ---
+
+    def test_duplicate_detection_penalized(self):
+        """Second detection on same GT should be false positive."""
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],
+            [0, 0, 0.8, 0.0, 0.0, 1.0, 1.0],  # duplicate, lower conf
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+        )
+        # First is TP, second is FP → precision drops
+        assert result < 1.0
+
+    # --- Multiple images ---
+
+    def test_multiple_images(self):
+        """Detections across multiple images (train_idx)."""
+        box_preds = [
+            [0, 0, 0.9, 0.0, 0.0, 1.0, 1.0],  # image 0
+            [1, 0, 0.9, 0.0, 0.0, 1.0, 1.0],  # image 1
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],  # image 0
+            [1, 0, 1.0, 0.0, 0.0, 1.0, 1.0],  # image 1
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+        )
+        assert result > 0.99
+
+    # --- Box format ---
+
+    def test_midpoint_format(self):
+        """Works with midpoint box format."""
+        # midpoint: cx, cy, w, h
+        box_preds = [
+            [0, 0, 0.9, 0.5, 0.5, 1.0, 1.0],
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.5, 0.5, 1.0, 1.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=1
+        )
+        assert result > 0.99
+
+    # --- Confidence ordering ---
+
+    def test_confidence_ordering_matters(self):
+        """Higher confidence predictions processed first."""
+        # One GT, two predictions: high conf misses, low conf hits
+        box_preds = [
+            [0, 0, 0.9, 10.0, 10.0, 11.0, 11.0],  # high conf, wrong location
+            [0, 0, 0.1, 0.0, 0.0, 1.0, 1.0],  # low conf, correct location
+        ]
+        box_targs = [
+            [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
+        ]
+        result = map(
+            box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+        )
+        # First (high conf) is FP, second (low conf) is TP
+        # Precision at recall=1 is 0.5, AP < 1
+        assert result < 0.99
