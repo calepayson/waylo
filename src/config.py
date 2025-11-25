@@ -18,6 +18,9 @@ class YOLOConfig(BaseConfig):
     n_classes: int = 20
     final_conv_channels: int = 1024
 
+    lambda_coord: float = 5.0
+    lambda_noobj: float = 0.5
+
     fc_hidden_size: int = 496  # 4096 in yolo paper but this speeds up training
     dropout: float = 0.0
     leaky_relu: float = 0.1
