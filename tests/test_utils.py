@@ -1,0 +1,147 @@
+"""Tests for utils.py"""
+
+import pytest
+import torch
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from utils import iou
+
+
+class TestIoU:
+    """Tests for intersection over union calculation."""
+
+    # --- Midpoint format tests ---
+
+    def test_midpoint_perfect_overlap(self):
+        """Identical boxes should have IoU of 1."""
+        box = torch.tensor([[0.5, 0.5, 1.0, 1.0]])
+        result = iou(box, box, box_format="midpoint")
+        assert torch.allclose(result, torch.tensor([[1.0]]))
+
+    def test_midpoint_no_overlap(self):
+        """Non-overlapping boxes should have IoU of 0."""
+        box1 = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        box2 = torch.tensor([[5.0, 5.0, 1.0, 1.0]])
+        result = iou(box1, box2, box_format="midpoint")
+        assert torch.allclose(result, torch.tensor([[0.0]]), atol=1e-5)
+
+    def test_midpoint_partial_overlap(self):
+        """Partially overlapping boxes."""
+        # Two 2x2 boxes, centers 1 unit apart horizontally
+        # Overlap is 1x2 = 2, union is 2*4 - 2 = 6, IoU = 2/6 = 1/3
+        box1 = torch.tensor([[0.0, 0.0, 2.0, 2.0]])
+        box2 = torch.tensor([[1.0, 0.0, 2.0, 2.0]])
+        result = iou(box1, box2, box_format="midpoint")
+        assert torch.allclose(result, torch.tensor([[1 / 3]]), atol=1e-5)
+
+    def test_midpoint_one_inside_other(self):
+        """Smaller box fully inside larger box."""
+        # Large 4x4 box, small 2x2 box at same center
+        # Intersection = 4, union = 16, IoU = 0.25
+        box1 = torch.tensor([[0.0, 0.0, 4.0, 4.0]])
+        box2 = torch.tensor([[0.0, 0.0, 2.0, 2.0]])
+        result = iou(box1, box2, box_format="midpoint")
+        assert torch.allclose(result, torch.tensor([[0.25]]))
+
+    # --- Corners format tests ---
+
+    def test_corners_perfect_overlap(self):
+        """Identical boxes should have IoU of 1."""
+        box = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        result = iou(box, box, box_format="corners")
+        assert torch.allclose(result, torch.tensor([[1.0]]))
+
+    def test_corners_no_overlap(self):
+        """Non-overlapping boxes should have IoU of 0."""
+        box1 = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        box2 = torch.tensor([[2.0, 2.0, 3.0, 3.0]])
+        result = iou(box1, box2, box_format="corners")
+        assert torch.allclose(result, torch.tensor([[0.0]]), atol=1e-5)
+
+    def test_corners_partial_overlap(self):
+        """Partially overlapping boxes."""
+        # Two 1x1 boxes overlapping by 0.5 in both dimensions
+        # Intersection = 0.25, union = 2 - 0.25 = 1.75, IoU = 0.25/1.75
+        box1 = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        box2 = torch.tensor([[0.5, 0.5, 1.5, 1.5]])
+        result = iou(box1, box2, box_format="corners")
+        expected = 0.25 / 1.75
+        assert torch.allclose(result, torch.tensor([[expected]]), atol=1e-5)
+
+    def test_corners_touching_edge(self):
+        """Boxes sharing an edge but no area overlap."""
+        box1 = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        box2 = torch.tensor([[1.0, 0.0, 2.0, 1.0]])
+        result = iou(box1, box2, box_format="corners")
+        assert torch.allclose(result, torch.tensor([[0.0]]), atol=1e-5)
+
+    # --- Batch tests ---
+
+    def test_batched_inputs(self):
+        """Multiple boxes in a batch."""
+        preds = torch.tensor(
+            [
+                [0.0, 0.0, 1.0, 1.0],
+                [0.0, 0.0, 1.0, 1.0],
+                [0.0, 0.0, 1.0, 1.0],
+            ]
+        )
+        labels = torch.tensor(
+            [
+                [0.0, 0.0, 1.0, 1.0],
+                [5.0, 5.0, 1.0, 1.0],
+                [0.5, 0.0, 1.0, 1.0],
+            ]
+        )
+        result = iou(preds, labels, box_format="midpoint")
+        assert result.shape == (3, 1)
+        assert torch.allclose(result[0], torch.tensor([1.0]))
+        assert torch.allclose(result[1], torch.tensor([0.0]), atol=1e-5)
+        assert result[2] > 0 and result[2] < 1
+
+    def test_batched_different_ious(self):
+        """Verify batch processing doesn't mix up boxes."""
+        preds = torch.tensor(
+            [
+                [0.0, 0.0, 2.0, 2.0],
+                [10.0, 10.0, 12.0, 12.0],
+            ]
+        )
+        labels = torch.tensor(
+            [
+                [0.0, 0.0, 2.0, 2.0],
+                [10.0, 10.0, 12.0, 12.0],
+            ]
+        )
+        result = iou(preds, labels, box_format="corners")
+        assert torch.allclose(result, torch.tensor([[1.0], [1.0]]))
+
+    # --- Edge cases ---
+
+    def test_large_boxes(self):
+        """Large coordinate values."""
+        box = torch.tensor([[1000.0, 1000.0, 2000.0, 2000.0]])
+        result = iou(box, box, box_format="corners")
+        assert torch.allclose(result, torch.tensor([[1.0]]))
+
+    def test_float_precision(self):
+        """Float32 vs float64 should both work."""
+        box32 = torch.tensor([[0.5, 0.5, 1.0, 1.0]], dtype=torch.float32)
+        box64 = torch.tensor([[0.5, 0.5, 1.0, 1.0]], dtype=torch.float64)
+        result32 = iou(box32, box32, box_format="midpoint")
+        result64 = iou(box64, box64, box_format="midpoint")
+        assert torch.allclose(result32, torch.tensor([[1.0]], dtype=torch.float32))
+        assert torch.allclose(result64, torch.tensor([[1.0]], dtype=torch.float64))
+
+    # --- Invalid input tests ---
+
+    def test_invalid_box_format(self):
+        """Invalid box_format should raise or handle gracefully."""
+        box = torch.tensor([[0.0, 0.0, 1.0, 1.0]])
+        # Once you add else/raise ValueError, change to:
+        # with pytest.raises(ValueError):
+        #     iou(box, box, box_format="invalid")
+        with pytest.raises((ValueError, UnboundLocalError, NameError)):
+            iou(box, box, box_format="invalid")
