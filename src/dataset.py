@@ -29,17 +29,14 @@ class VOCDataset(Dataset):
         self,
         csv_path: Path,
         config: CurrentConfig | None = None,
-        S: int = 7,
-        B: int = 2,
-        C: int = 20,
         transform=None,
     ):
         self.config = config or CurrentConfig()
         self.annotations = pd.read_csv(csv_path)
         self.transform = transform
-        self.S = S
-        self.B = B
-        self.C = C
+        self.S = self.config.split_size
+        self.B = self.config.n_boxes
+        self.C = self.config.n_classes
 
     def __len__(self):
         return len(self.annotations)
@@ -62,7 +59,7 @@ class VOCDataset(Dataset):
         image = Image.open(img_path).convert("RGB")
 
         if self.transform:
-            image = self.transform(image)
+            image, boxes = self.transform(image, boxes)
 
         label_matrix = torch.zeros((self.S, self.S, self.C + 5 * self.B))
         for box in boxes:

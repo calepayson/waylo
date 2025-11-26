@@ -170,3 +170,143 @@ def map(box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=2
         avg_precisions.append(torch.trapz(precisions, recalls))
 
     return sum(avg_precisions) / len(avg_precisions)
+
+
+def get_bboxes(
+    loader,
+    model,
+    iou_thresh,
+    thresh,
+    pred_format="cells",
+    box_format="midpoint",
+    device="cpu",
+):
+    """
+    Extract all the predicted ground truth bounding boxes from a dataset.
+
+    Returns:
+        list, list: Each with format [image_index, class, confidence, x, y, w, h]
+    """
+    all_box_preds = []
+    all_box_targs = []
+
+    model.eval()
+
+    for batch_idx, (images, labels) in enumerate(loader):
+        images = images.to(device)
+        labels = labels.to(device)
+
+        with torch.no_grad():
+            predictions = model(images)
+
+        pred_boxes_batch = convert_cellboxes_to_list(predictions)
+        targ_boxes_batch = convert_cellboxes_to_list(labels)
+
+        for idx_in_batch in range(images.shape[0]):
+            global_image_idx = batch_idx * loader.batch_size + idx_in_batch
+
+            nms_boxes = nms(
+                pred_boxes_batch[idx_in_batch],
+                iou_thresh=iou_thresh,
+                thresh=thresh,
+                box_format=box_format,
+            )
+
+            for box in nms_boxes:
+                all_box_preds.append([global_image_idx] + box)
+
+            for box in targ_boxes_batch[idx_in_batch]:
+                confidence = box[1]
+                if confidence > thresh:
+                    all_box_targs.append([global_image_idx] + box)
+
+    model.train()
+    return all_box_preds, all_box_targs
+
+
+def convert_cellboxes_to_list(predictions, grid_size=7):
+    """
+    Convert YOLO predictions to nested list format for non-max suppression and
+    mean average precision calculation.
+
+    Args:
+        predictions: Raw model output, shape (batch, S*S*30) or (batch, S, S, 30)
+        grid_size: Number of grid cells per dimension
+
+    Returns:
+        List of length batch_size, where each element is a list of 49 boxes,
+        and each box is [class, confidence, x, y, w, h]
+    """
+    converted = convert_cellboxes_to_image_coords(predictions, grid_size)
+    batch_size = converted.shape[0]
+
+    converted = converted.reshape(batch_size, grid_size * grid_size, -1)
+
+    all_boxes = []
+    for image_idx in range(batch_size):
+        image_boxes = converted[image_idx].tolist()
+        all_boxes.append(image_boxes)
+
+    return all_boxes
+
+
+def convert_cellboxes_to_image_coords(predictions, grid_size=7):
+    """
+    Convert YOLO cell-relative predictions to image-relative coordinates.
+
+    Args:
+        predictions tensor: Shape (batch, grid_size * grid_size * 30) or (batch,
+            grid_size, grid_size, 30)
+        grid_size: Number of grid cells per dimension (S in the paper)
+
+    Returns:
+        tensor: Shape (batch, grid_size, grid_size, 6) containing [class_id,
+            confidence, x, y, w, h] per cell, in image-relative coords
+    """
+    predictions = predictions.to("cpu")
+    batch_size = predictions.shape[0]
+    predictions = predictions.reshape(batch_size, grid_size, grid_size, 30)
+
+    box1_coords = predictions[..., 21:25]
+    box2_coords = predictions[..., 26:30]
+
+    box1_confidence = predictions[..., 20]
+    box2_confidence = predictions[..., 25]
+
+    box1_is_better = (box1_confidence > box2_confidence).unsqueeze(-1)
+    best_box_coords = torch.where(box1_is_better, box1_coords, box2_coords)
+    best_confidence = torch.max(box1_confidence, box2_confidence)
+
+    cell_indices_x = (
+        torch.arange(grid_size)
+        .view(1, 1, grid_size, 1)
+        .expand(batch_size, grid_size, grid_size, 1)
+    )
+    cell_indices_y = (
+        torch.arange(grid_size)
+        .view(1, grid_size, 1, 1)
+        .expand(batch_size, grid_size, grid_size, 1)
+    )
+
+    x_image = (best_box_coords[..., 0:1] + cell_indices_x) / grid_size
+    y_image = (best_box_coords[..., 1:2] + cell_indices_y) / grid_size
+
+    w_image = best_box_coords[..., 2:3] / grid_size
+    h_image = best_box_coords[..., 3:4] / grid_size
+
+    class_probs = predictions[..., :20]
+    predicted_class = class_probs.argmax(dim=-1).unsqueeze(-1).float()
+
+    result = torch.cat(
+        [
+            predicted_class,
+            best_confidence.unsqueeze(-1),
+            x_image,
+            y_image,
+            w_image,
+            h_image,
+        ],
+        dim=-1,
+    )
+
+    return result

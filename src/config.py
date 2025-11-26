@@ -1,4 +1,6 @@
-from dataclasses import dataclass, field
+import torch
+
+from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar
 import logging
@@ -24,6 +26,16 @@ class YOLOConfig(BaseConfig):
     fc_hidden_size: int = 496  # 4096 in yolo paper but this speeds up training
     dropout: float = 0.0
     leaky_relu: float = 0.1
+
+    device: str = "cuda" if torch.cuda.is_available() else "cpu"
+
+    learning_rate: float = 3e-5
+    weight_decay: float = 0
+
+    epochs: int = 1000
+    batch_size: int = 32
+    num_workers: int = 2
+    pin_memory: bool = True
 
     ARCHITECTURE: ClassVar[list] = [
         (7, 64, 2, 3),
