@@ -33,7 +33,7 @@ class YOLOConfig(BaseConfig):
     weight_decay: float = 0
 
     epochs: int = 1000
-    batch_size: int = 32
+    batch_size: int = 16
     num_workers: int = 2
     pin_memory: bool = True
 
