@@ -52,7 +52,7 @@ class VOCDataset(Dataset):
         boxes = []
         with open(label_path) as f:
             for line in f.readlines():
-                class_label, x, y, w, h = map(float, line.strip().split())
+                class_label, x, y, w, h = calculate_map(float, line.strip().split())
                 boxes.append([int(class_label), x, y, w, h])
 
         img_path = self.config.img_dir / self.annotations.iloc[index, 0]

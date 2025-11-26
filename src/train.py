@@ -99,9 +99,9 @@ def main():
 
         if (epoch + 1) % 10 == 0 or epoch == conf.epochs - 1:
             box_preds, box_targs = get_bboxes(
-                train_loader, model, iou_thresh=0.5, thresh=0.4
+               train_loader, model, iou_thresh=0.5, thresh=0.4, device=conf.device
             )
-            mean_avg_prec = map(
+            mean_avg_prec = calculate_map(
                 box_preds, box_targs, iou_thresh=0.5, box_format="midpoint"
             )
             writer.add_scalar("mAP/train", mean_avg_prec, epoch)

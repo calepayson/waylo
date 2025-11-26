@@ -90,7 +90,7 @@ def nms(bboxes, iou_thresh, thresh, box_format="corners"):
     return bboxes_after_nms
 
 
-def map(box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=20):
+def compute_calculate_map(box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=20):
     """
     Calculates mean average precision for a set of labeled and predicted
     bounding boxes.
@@ -263,7 +263,7 @@ def convert_cellboxes_to_image_coords(predictions, grid_size=7):
         tensor: Shape (batch, grid_size, grid_size, 6) containing [class_id,
             confidence, x, y, w, h] per cell, in image-relative coords
     """
-    predictions = predictions.to("cpu")
+    # predictions = predictions.to("cpu")
     batch_size = predictions.shape[0]
     predictions = predictions.reshape(batch_size, grid_size, grid_size, 30)
 
@@ -278,12 +278,12 @@ def convert_cellboxes_to_image_coords(predictions, grid_size=7):
     best_confidence = torch.max(box1_confidence, box2_confidence)
 
     cell_indices_x = (
-        torch.arange(grid_size)
+        torch.arange(grid_size, device=predictions.device)
         .view(1, 1, grid_size, 1)
         .expand(batch_size, grid_size, grid_size, 1)
     )
     cell_indices_y = (
-        torch.arange(grid_size)
+        torch.arange(grid_size, device=predictions.device)
         .view(1, grid_size, 1, 1)
         .expand(batch_size, grid_size, grid_size, 1)
     )
