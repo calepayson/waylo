@@ -90,7 +90,9 @@ def nms(bboxes, iou_thresh, thresh, box_format="corners"):
     return bboxes_after_nms
 
 
-def compute_calculate_map(box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=20):
+def calculate_map(
+    box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=20
+):
     """
     Calculates mean average precision for a set of labeled and predicted
     bounding boxes.

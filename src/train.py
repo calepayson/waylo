@@ -8,7 +8,7 @@ from config import CurrentConfig
 from dataset import VOCDataset
 from model import Yolo
 from loss import YoloLoss
-from utils import get_bboxes
+from utils import get_bboxes, calculate_map
 
 seed = 42
 torch.manual_seed(seed)
@@ -99,7 +99,7 @@ def main():
 
         if (epoch + 1) % 10 == 0 or epoch == conf.epochs - 1:
             box_preds, box_targs = get_bboxes(
-               train_loader, model, iou_thresh=0.5, thresh=0.4, device=conf.device
+                train_loader, model, iou_thresh=0.5, thresh=0.4, device=conf.device
             )
             mean_avg_prec = calculate_map(
                 box_preds, box_targs, iou_thresh=0.5, box_format="midpoint"

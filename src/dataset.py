@@ -52,14 +52,18 @@ class VOCDataset(Dataset):
         boxes = []
         with open(label_path) as f:
             for line in f.readlines():
-                class_label, x, y, w, h = calculate_map(float, line.strip().split())
+                class_label, x, y, w, h = map(float, line.strip().split())
                 boxes.append([int(class_label), x, y, w, h])
 
         img_path = self.config.img_dir / self.annotations.iloc[index, 0]
         image = Image.open(img_path).convert("RGB")
 
         if self.transform:
-            image, boxes = self.transform(image, boxes)
+            if hasattr(self.transform, "__call__"):
+                try:
+                    image, boxes = self.transform(image, boxes)
+                except TypeError:
+                    image = self.transform(image)
 
         label_matrix = torch.zeros((self.S, self.S, self.C + 5 * self.B))
         for box in boxes:

@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
-from utils import iou, nms, map
+from utils import iou, nms, calculate_map
 
 
 class TestIoU:
@@ -277,7 +277,7 @@ class TestMAP:
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
             [1, 0, 1.0, 2.0, 2.0, 3.0, 3.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
         )
         assert result > 0.99
@@ -290,7 +290,7 @@ class TestMAP:
         ]
         # All classes with GTs are skipped, avg_precisions is empty → division error or 0
         # Current implementation will raise ZeroDivisionError
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=20
         )
         assert result == 0.0
@@ -302,7 +302,9 @@ class TestMAP:
         ]
         box_targs = []
         with pytest.raises(ZeroDivisionError):
-            map(box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1)
+            calculate_map(
+                box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
+            )
 
     def test_all_false_positives(self):
         """Predictions don't overlap any ground truths → mAP = 0."""
@@ -312,7 +314,7 @@ class TestMAP:
         box_targs = [
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
         )
         assert result < 0.01
@@ -331,7 +333,7 @@ class TestMAP:
         ]
         # Class 1 has no detections but has GTs → n_true_bboxes > 0, but detections empty
         # Loop doesn't add to TP/FP, recalls/precisions are empty tensors of size 0
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=2
         )
         # Class 0: AP=1, Class 1: AP=0 (no TP), mAP = 0.5
@@ -347,7 +349,7 @@ class TestMAP:
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
             [0, 1, 1.0, 2.0, 2.0, 3.0, 3.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=2
         )
         assert result > 0.99
@@ -363,10 +365,10 @@ class TestMAP:
         box_targs = [
             [0, 0, 1.0, 0.2, 0.2, 1.2, 1.2],  # partial overlap
         ]
-        result_loose = map(
+        result_loose = calculate_map(
             box_preds, box_targs, iou_thresh=0.3, box_format="corners", n_classes=1
         )
-        result_strict = map(
+        result_strict = calculate_map(
             box_preds, box_targs, iou_thresh=0.9, box_format="corners", n_classes=1
         )
         assert result_loose > result_strict
@@ -382,7 +384,7 @@ class TestMAP:
         box_targs = [
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
         )
         # First is TP, second is FP → precision drops
@@ -400,7 +402,7 @@ class TestMAP:
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],  # image 0
             [1, 0, 1.0, 0.0, 0.0, 1.0, 1.0],  # image 1
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
         )
         assert result > 0.99
@@ -416,7 +418,7 @@ class TestMAP:
         box_targs = [
             [0, 0, 1.0, 0.5, 0.5, 1.0, 1.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="midpoint", n_classes=1
         )
         assert result > 0.99
@@ -433,7 +435,7 @@ class TestMAP:
         box_targs = [
             [0, 0, 1.0, 0.0, 0.0, 1.0, 1.0],
         ]
-        result = map(
+        result = calculate_map(
             box_preds, box_targs, iou_thresh=0.5, box_format="corners", n_classes=1
         )
         # First (high conf) is FP, second (low conf) is TP
