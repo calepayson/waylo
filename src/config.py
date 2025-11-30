@@ -32,9 +32,9 @@ class YOLOConfig(BaseConfig):
     learning_rate: float = 3e-5
     weight_decay: float = 0
 
-    epochs: int = 1000
-    batch_size: int = 16
-    num_workers: int = 2
+    epochs: int = 50
+    batch_size: int = 8
+    num_workers: int = 4
     pin_memory: bool = True
 
     ARCHITECTURE: ClassVar[list] = [
@@ -59,6 +59,7 @@ class YOLOConfig(BaseConfig):
     ]
 
     data_root: Path = Path(__file__).parent.parent / "voc_data"
+    results_dir: Path = Path(__file__).parent.parent / "results"
 
     @property
     def img_dir(self) -> Path:
@@ -70,13 +71,32 @@ class YOLOConfig(BaseConfig):
 
     @property
     def train_csv(self) -> Path:
-        return self.data_root / "train.csv"
+        return self.data_root / "100examples.csv"
 
     @property
     def val_csv(self) -> Path:
         return self.data_root / "val.csv"
 
+    @property
+    def test_csv(self) -> Path:
+        return self.data_root / "test.csv"
+
 
 @dataclass
 class CurrentConfig(YOLOConfig):
     log_level: int = logging.DEBUG
+    results_dir: Path = Path(__file__).parent.parent / "results_voc"
+
+
+@dataclass
+class WaymoConfig(CurrentConfig):
+    data_root: Path = Path(__file__).parent.parent / "waymo_data"
+    results_dir: Path = Path(__file__).parent.parent / "results_waymo"
+
+    @property
+    def train_csv(self) -> Path:
+        return self.data_root / "train.csv"
+
+    @property
+    def val_csv(self) -> Path:
+        return self.data_root / "val.csv"
